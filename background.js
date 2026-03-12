@@ -64,6 +64,11 @@ const updateTab = (tabId, updateProperties) =>
 const queryTabs = (queryInfo) =>
   new Promise((resolve) => chrome.tabs.query(queryInfo, resolve));
 
+const getActiveTabInWindow = async () => {
+  const tabs = await queryTabs({ active: true, currentWindow: true });
+  return tabs && tabs.length > 0 ? tabs[0] : null;
+};
+
 const groupTab = (tabId, groupId, windowId) =>
   new Promise((resolve) => {
     const options = typeof groupId === "number"
@@ -746,6 +751,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handlePrecisionTick();
     return;
   }
+});
+
+chrome.commands.onCommand.addListener(async (command) => {
+  if (command !== "open_lazy_tab") return;
+  const tab = await getActiveTabInWindow();
+  if (!tab || !tab.url) return;
+
+  let targetUrl = tab.url;
+  if (isCustomTabUrl(targetUrl)) {
+    targetUrl = getOriginalUrlFromCustomTab(targetUrl) || targetUrl;
+  }
+
+  if (!isLazyCandidateUrl(targetUrl)) return;
+
+  await openLazyTabForUrl(targetUrl, tab.id, false, { forceLazy: true });
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {

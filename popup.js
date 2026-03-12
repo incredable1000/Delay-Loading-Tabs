@@ -9,6 +9,7 @@ document.addEventListener("DOMContentLoaded", function () {
   const loadNextButton = document.getElementById("loadNext");
   const refreshButton = document.getElementById("refreshQueue");
   const blockedDomainsInput = document.getElementById("blockedDomains");
+  const openShortcutsButton = document.getElementById("openShortcuts");
 
   const QUEUE_PREVIEW_LIMIT = 8;
   let blockedSaveTimer = null;
@@ -222,6 +223,12 @@ document.addEventListener("DOMContentLoaded", function () {
   refreshButton.addEventListener("click", function () {
     renderQueue();
   });
+
+  if (openShortcutsButton) {
+    openShortcutsButton.addEventListener("click", function () {
+      chrome.tabs.create({ url: "chrome://extensions/shortcuts" });
+    });
+  }
 
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== "local") return;
