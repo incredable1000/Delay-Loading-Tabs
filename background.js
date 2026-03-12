@@ -536,7 +536,7 @@ async function clearAutoLoadSchedule() {
 
 async function ensureAutoLoadAlarm(forceReschedule = false) {
   const settings = await getSettings();
-  if (!settings.enabled || !settings.autoLoadEnabled) {
+  if (!settings.autoLoadEnabled) {
     await clearAutoLoadSchedule();
     return;
   }
@@ -563,7 +563,7 @@ async function ensureAutoLoadAlarm(forceReschedule = false) {
 
 async function scheduleAutoLoad(forceReschedule = false) {
   const settings = await getSettings();
-  if (!settings.enabled || !settings.autoLoadEnabled) {
+  if (!settings.autoLoadEnabled) {
     await clearAutoLoadSchedule();
     return;
   }
@@ -667,7 +667,7 @@ async function openLazyTabForUrl(url, openerTabId, active, options = {}) {
 
 async function handlePrecisionTick() {
   const settings = await getSettings();
-  if (!settings.enabled || !settings.autoLoadEnabled) {
+  if (!settings.autoLoadEnabled) {
     await clearAutoLoadSchedule();
     return;
   }
@@ -721,7 +721,7 @@ chrome.runtime.onStartup.addListener(async () => {
   await ensureDefaults();
   setupContextMenus();
   const settings = await getSettings();
-  if (settings.enabled && settings.autoLoadEnabled) {
+  if (settings.autoLoadEnabled) {
     await rebuildQueueFromTabs();
   }
   if (settings.groupLazyTabsEnabled) {
@@ -846,19 +846,13 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
 chrome.storage.onChanged.addListener(async (changes, areaName) => {
   if (areaName !== "local") return;
 
-  if (changes.enabled && changes.enabled.newValue === false) {
-    await clearAutoLoadSchedule();
-    await releaseAllLazyTabs();
-    return;
-  }
-
   if (
     changes.autoLoadEnabled ||
     changes.autoLoadIntervalSeconds ||
     changes.enabled
   ) {
     const settings = await getSettings();
-    if (settings.enabled && settings.autoLoadEnabled) {
+    if (settings.autoLoadEnabled) {
       await rebuildQueueFromTabs();
     }
     await scheduleAutoLoad(true);
@@ -880,7 +874,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 
   const settings = await getSettings();
-  if (!settings.enabled || !settings.autoLoadEnabled) {
+  if (!settings.autoLoadEnabled) {
     await clearAutoLoadSchedule();
     return;
   }
@@ -903,7 +897,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 (async () => {
   await ensureDefaults();
   const settings = await getSettings();
-  if (settings.enabled && settings.autoLoadEnabled) {
+  if (settings.autoLoadEnabled) {
     await rebuildQueueFromTabs();
   }
   if (settings.groupLazyTabsEnabled) {
