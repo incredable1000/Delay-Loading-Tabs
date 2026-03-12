@@ -16,6 +16,10 @@ const STORAGE_KEYS = {
 
 const AUTOLOAD_ALARM = "autoLoadLazyTabs";
 const BADGE_COLOR = "#4CAF50";
+const MENU_IDS = {
+  openLazyLink: "openLazyLink",
+  convertTab: "convertTabToLazy"
+};
 
 const getLocal = (keys) =>
   new Promise((resolve) => chrome.storage.local.get(keys, resolve));
@@ -26,6 +30,17 @@ const setLocal = (items) =>
 const getTab = (tabId) =>
   new Promise((resolve) => {
     chrome.tabs.get(tabId, (tab) => {
+      if (chrome.runtime.lastError) {
+        resolve(null);
+        return;
+      }
+      resolve(tab);
+    });
+  });
+
+const createTab = (createProperties) =>
+  new Promise((resolve) => {
+    chrome.tabs.create(createProperties, (tab) => {
       if (chrome.runtime.lastError) {
         resolve(null);
         return;
@@ -98,6 +113,12 @@ async function getBlockedDomains() {
     ? result[STORAGE_KEYS.blockedDomains]
     : [];
   return domains.map(normalizeDomain).filter(Boolean);
+}
+
+async function shouldBlockUrl(url) {
+  const blockedDomains = await getBlockedDomains();
+  const hostname = getHostname(url);
+  return isDomainBlocked(hostname, blockedDomains);
 }
 
 function normalizeIntervalSeconds(value) {
@@ -245,6 +266,21 @@ async function ensureDefaults() {
   updateBadge(queue.length);
 }
 
+function setupContextMenus() {
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: MENU_IDS.openLazyLink,
+      title: "Open link as lazy tab",
+      contexts: ["link"]
+    });
+    chrome.contextMenus.create({
+      id: MENU_IDS.convertTab,
+      title: "Convert tab to lazy",
+      contexts: ["page"]
+    });
+  });
+}
+
 async function getLazyQueue() {
   const result = await getLocal([STORAGE_KEYS.lazyQueue]);
   const queue = result[STORAGE_KEYS.lazyQueue];
@@ -371,13 +407,42 @@ async function loadNextLazyTabNow() {
   return true;
 }
 
+async function openLazyTabForUrl(url, openerTabId, active) {
+  const settings = await getSettings();
+  const isLazyUrl = isLazyCandidateUrl(url);
+
+  if (!isLazyUrl) {
+    return createTab({ url, openerTabId, active });
+  }
+
+  if (!settings.enabled) {
+    return createTab({ url, openerTabId, active });
+  }
+
+  if (await shouldBlockUrl(url)) {
+    return createTab({ url, openerTabId, active });
+  }
+
+  const customTabUrl = buildCustomTabUrl(url);
+  const tab = await createTab({ url: customTabUrl, openerTabId, active });
+
+  if (tab && settings.autoLoadEnabled) {
+    await enqueueLazyTab(tab.id);
+    await ensureAutoLoadAlarm(false);
+  }
+
+  return tab;
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   ensureDefaults();
   ensureAutoLoadAlarm(true);
+  setupContextMenus();
 });
 
 chrome.runtime.onStartup.addListener(async () => {
   await ensureDefaults();
+  setupContextMenus();
   const settings = await getSettings();
   if (settings.enabled && settings.autoLoadEnabled) {
     await rebuildQueueFromTabs();
@@ -400,6 +465,38 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ loaded: false, error: error?.message || "error" })
       );
     return true;
+  }
+});
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (!info || !info.menuItemId) return;
+
+  if (info.menuItemId === MENU_IDS.openLazyLink) {
+    if (!info.linkUrl) return;
+    const openerTabId = tab && typeof tab.id === "number" ? tab.id : undefined;
+    await openLazyTabForUrl(info.linkUrl, openerTabId, false);
+    return;
+  }
+
+  if (info.menuItemId === MENU_IDS.convertTab) {
+    if (!tab || !tab.url) return;
+    if (!isLazyCandidateUrl(tab.url)) return;
+    if (isCustomTabUrl(tab.url)) return;
+
+    const settings = await getSettings();
+    if (!settings.enabled) return;
+
+    if (await shouldBlockUrl(tab.url)) {
+      return;
+    }
+
+    const customTabUrl = buildCustomTabUrl(tab.url);
+    await updateTab(tab.id, { url: customTabUrl });
+
+    if (settings.autoLoadEnabled) {
+      await enqueueLazyTab(tab.id);
+      await ensureAutoLoadAlarm(false);
+    }
   }
 });
 
