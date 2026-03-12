@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Lazy Load New Tabs",
-  "version": "1.9",
+  "version": "1.10",
   "description": "Open new tabs without loading the website until the tab is activated, preserving URLs across sessions.",
   "permissions": ["tabs", "storage", "alarms"],
   "action": {

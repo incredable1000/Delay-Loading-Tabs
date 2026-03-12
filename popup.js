@@ -7,8 +7,10 @@ document.addEventListener("DOMContentLoaded", function () {
   const queueEmpty = document.getElementById("queueEmpty");
   const loadNextButton = document.getElementById("loadNext");
   const refreshButton = document.getElementById("refreshQueue");
+  const blockedDomainsInput = document.getElementById("blockedDomains");
 
   const QUEUE_PREVIEW_LIMIT = 8;
+  let blockedSaveTimer = null;
 
   function sendMessage(message) {
     return new Promise((resolve) => chrome.runtime.sendMessage(message, resolve));
@@ -45,6 +47,40 @@ document.addEventListener("DOMContentLoaded", function () {
     } catch {
       return rawUrl;
     }
+  }
+
+  function normalizeDomain(value) {
+    if (!value) return "";
+    let trimmed = value.trim().toLowerCase();
+    if (!trimmed) return "";
+    if (trimmed.startsWith(".")) {
+      trimmed = trimmed.slice(1);
+    }
+    if (!trimmed) return "";
+    try {
+      if (!trimmed.includes("://")) {
+        return new URL(`https://${trimmed}`).hostname.toLowerCase();
+      }
+      return new URL(trimmed).hostname.toLowerCase();
+    } catch {
+      return "";
+    }
+  }
+
+  function parseDomainList(raw) {
+    const parts = raw.split(/[\n,;]+/);
+    const set = new Set();
+    for (const part of parts) {
+      const normalized = normalizeDomain(part);
+      if (normalized) {
+        set.add(normalized);
+      }
+    }
+    return Array.from(set);
+  }
+
+  function updateBlockedDomainsField(domains) {
+    blockedDomainsInput.value = domains.join("\n");
   }
 
   async function getQueue() {
@@ -92,7 +128,7 @@ document.addEventListener("DOMContentLoaded", function () {
     if (queue.length > QUEUE_PREVIEW_LIMIT) {
       const moreItem = document.createElement("li");
       moreItem.className = "queue-item queue-more";
-      moreItem.textContent = `+${queue.length - QUEUE_PREVIEW_LIMIT} more…`;
+      moreItem.textContent = `+${queue.length - QUEUE_PREVIEW_LIMIT} more...`;
       fragment.appendChild(moreItem);
     }
 
@@ -100,7 +136,7 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   chrome.storage.local.get(
-    ["enabled", "autoLoadEnabled", "autoLoadIntervalSeconds"],
+    ["enabled", "autoLoadEnabled", "autoLoadIntervalSeconds", "blockedDomains"],
     function (result) {
       const enabled =
         typeof result.enabled === "boolean" ? result.enabled : false;
@@ -113,11 +149,15 @@ document.addEventListener("DOMContentLoaded", function () {
       )
         ? Math.max(1, Math.floor(result.autoLoadIntervalSeconds))
         : 60;
+      const blockedDomains = Array.isArray(result.blockedDomains)
+        ? result.blockedDomains
+        : [];
 
       enabledInput.checked = enabled;
       autoLoadEnabledInput.checked = autoLoadEnabled;
       autoLoadIntervalInput.value = autoLoadIntervalSeconds;
       autoLoadIntervalInput.disabled = !autoLoadEnabled;
+      updateBlockedDomainsField(blockedDomains);
     }
   );
 
@@ -139,6 +179,22 @@ document.addEventListener("DOMContentLoaded", function () {
     chrome.storage.local.set({ autoLoadIntervalSeconds: value });
   });
 
+  blockedDomainsInput.addEventListener("input", function () {
+    if (blockedSaveTimer) {
+      clearTimeout(blockedSaveTimer);
+    }
+    blockedSaveTimer = setTimeout(() => {
+      const domains = parseDomainList(blockedDomainsInput.value);
+      chrome.storage.local.set({ blockedDomains: domains });
+    }, 500);
+  });
+
+  blockedDomainsInput.addEventListener("blur", function () {
+    const domains = parseDomainList(blockedDomainsInput.value);
+    updateBlockedDomainsField(domains);
+    chrome.storage.local.set({ blockedDomains: domains });
+  });
+
   loadNextButton.addEventListener("click", async function () {
     loadNextButton.disabled = true;
     await sendMessage({ type: "loadNextNow" });
@@ -153,6 +209,12 @@ document.addEventListener("DOMContentLoaded", function () {
     if (areaName !== "local") return;
     if (changes.lazyQueue || changes.enabled || changes.autoLoadEnabled) {
       renderQueue();
+    }
+    if (changes.blockedDomains && document.activeElement !== blockedDomainsInput) {
+      const next = Array.isArray(changes.blockedDomains.newValue)
+        ? changes.blockedDomains.newValue
+        : [];
+      updateBlockedDomainsField(next);
     }
   });
 

@@ -10,7 +10,8 @@ const STORAGE_KEYS = {
   autoLoadIntervalSeconds: "autoLoadIntervalSeconds",
   autoLoadIntervalMinutes: "autoLoadIntervalMinutes",
   lazyQueue: "lazyQueue",
-  nextAlarmAt: "nextAlarmAt"
+  nextAlarmAt: "nextAlarmAt",
+  blockedDomains: "blockedDomains"
 };
 
 const AUTOLOAD_ALARM = "autoLoadLazyTabs";
@@ -59,6 +60,44 @@ function formatBadgeText(count) {
 function updateBadge(count) {
   chrome.action.setBadgeText({ text: formatBadgeText(count) });
   chrome.action.setBadgeBackgroundColor({ color: BADGE_COLOR });
+}
+
+function normalizeDomain(value) {
+  if (!value || typeof value !== "string") return "";
+  let trimmed = value.trim().toLowerCase();
+  if (!trimmed) return "";
+  if (trimmed.startsWith(".")) {
+    trimmed = trimmed.slice(1);
+  }
+  return trimmed;
+}
+
+function getHostname(url) {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function isDomainBlocked(hostname, blockedDomains) {
+  if (!hostname) return false;
+  for (const domain of blockedDomains) {
+    const normalized = normalizeDomain(domain);
+    if (!normalized) continue;
+    if (hostname === normalized || hostname.endsWith(`.${normalized}`)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function getBlockedDomains() {
+  const result = await getLocal([STORAGE_KEYS.blockedDomains]);
+  const domains = Array.isArray(result[STORAGE_KEYS.blockedDomains])
+    ? result[STORAGE_KEYS.blockedDomains]
+    : [];
+  return domains.map(normalizeDomain).filter(Boolean);
 }
 
 function normalizeIntervalSeconds(value) {
@@ -157,7 +196,8 @@ async function ensureDefaults() {
     STORAGE_KEYS.autoLoadIntervalSeconds,
     STORAGE_KEYS.autoLoadIntervalMinutes,
     STORAGE_KEYS.lazyQueue,
-    STORAGE_KEYS.nextAlarmAt
+    STORAGE_KEYS.nextAlarmAt,
+    STORAGE_KEYS.blockedDomains
   ]);
 
   const updates = {};
@@ -191,6 +231,10 @@ async function ensureDefaults() {
 
   if (typeof result[STORAGE_KEYS.nextAlarmAt] !== "number") {
     updates[STORAGE_KEYS.nextAlarmAt] = null;
+  }
+
+  if (!Array.isArray(result[STORAGE_KEYS.blockedDomains])) {
+    updates[STORAGE_KEYS.blockedDomains] = [];
   }
 
   if (Object.keys(updates).length > 0) {
@@ -364,6 +408,10 @@ chrome.tabs.onCreated.addListener(async (tab) => {
   if (!settings.enabled) return;
   if (!tab.openerTabId || !tab.pendingUrl) return;
   if (!isLazyCandidateUrl(tab.pendingUrl)) return;
+
+  const blockedDomains = await getBlockedDomains();
+  const hostname = getHostname(tab.pendingUrl);
+  if (isDomainBlocked(hostname, blockedDomains)) return;
 
   const customTabUrl = buildCustomTabUrl(tab.pendingUrl);
   await updateTab(tab.id, { url: customTabUrl });
