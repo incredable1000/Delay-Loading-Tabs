@@ -2,6 +2,7 @@ document.addEventListener("DOMContentLoaded", function () {
   const enabledInput = document.getElementById("enabled");
   const autoLoadEnabledInput = document.getElementById("autoLoadEnabled");
   const autoLoadIntervalInput = document.getElementById("autoLoadIntervalSeconds");
+  const groupLazyTabsInput = document.getElementById("groupLazyTabsEnabled");
   const queueCount = document.getElementById("queueCount");
   const queueList = document.getElementById("queueList");
   const queueEmpty = document.getElementById("queueEmpty");
@@ -136,7 +137,13 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   chrome.storage.local.get(
-    ["enabled", "autoLoadEnabled", "autoLoadIntervalSeconds", "blockedDomains"],
+    [
+      "enabled",
+      "autoLoadEnabled",
+      "autoLoadIntervalSeconds",
+      "groupLazyTabsEnabled",
+      "blockedDomains"
+    ],
     function (result) {
       const enabled =
         typeof result.enabled === "boolean" ? result.enabled : false;
@@ -149,6 +156,10 @@ document.addEventListener("DOMContentLoaded", function () {
       )
         ? Math.max(1, Math.floor(result.autoLoadIntervalSeconds))
         : 60;
+      const groupLazyTabsEnabled =
+        typeof result.groupLazyTabsEnabled === "boolean"
+          ? result.groupLazyTabsEnabled
+          : false;
       const blockedDomains = Array.isArray(result.blockedDomains)
         ? result.blockedDomains
         : [];
@@ -157,6 +168,7 @@ document.addEventListener("DOMContentLoaded", function () {
       autoLoadEnabledInput.checked = autoLoadEnabled;
       autoLoadIntervalInput.value = autoLoadIntervalSeconds;
       autoLoadIntervalInput.disabled = !autoLoadEnabled;
+      groupLazyTabsInput.checked = groupLazyTabsEnabled;
       updateBlockedDomainsField(blockedDomains);
     }
   );
@@ -168,6 +180,12 @@ document.addEventListener("DOMContentLoaded", function () {
   autoLoadEnabledInput.addEventListener("change", function () {
     chrome.storage.local.set({ autoLoadEnabled: autoLoadEnabledInput.checked });
     autoLoadIntervalInput.disabled = !autoLoadEnabledInput.checked;
+  });
+
+  groupLazyTabsInput.addEventListener("change", function () {
+    chrome.storage.local.set({
+      groupLazyTabsEnabled: groupLazyTabsInput.checked
+    });
   });
 
   autoLoadIntervalInput.addEventListener("change", function () {
@@ -209,6 +227,12 @@ document.addEventListener("DOMContentLoaded", function () {
     if (areaName !== "local") return;
     if (changes.lazyQueue || changes.enabled || changes.autoLoadEnabled) {
       renderQueue();
+    }
+    if (
+      changes.groupLazyTabsEnabled &&
+      typeof changes.groupLazyTabsEnabled.newValue === "boolean"
+    ) {
+      groupLazyTabsInput.checked = changes.groupLazyTabsEnabled.newValue;
     }
     if (changes.blockedDomains && document.activeElement !== blockedDomainsInput) {
       const next = Array.isArray(changes.blockedDomains.newValue)

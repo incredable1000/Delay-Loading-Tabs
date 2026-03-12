@@ -1,7 +1,8 @@
 const DEFAULT_SETTINGS = {
   enabled: false,
   autoLoadEnabled: false,
-  autoLoadIntervalSeconds: 60
+  autoLoadIntervalSeconds: 60,
+  groupLazyTabsEnabled: false
 };
 
 const STORAGE_KEYS = {
@@ -11,16 +12,21 @@ const STORAGE_KEYS = {
   autoLoadIntervalMinutes: "autoLoadIntervalMinutes",
   lazyQueue: "lazyQueue",
   nextAlarmAt: "nextAlarmAt",
-  blockedDomains: "blockedDomains"
+  blockedDomains: "blockedDomains",
+  groupLazyTabsEnabled: "groupLazyTabsEnabled"
 };
 
 const AUTOLOAD_ALARM = "autoLoadLazyTabs";
 const BADGE_COLOR = "#4CAF50";
 const OFFSCREEN_URL = "offscreen.html";
+const LAZY_GROUP_TITLE = "Lazy Tabs";
+const LAZY_GROUP_COLOR = "green";
 const MENU_IDS = {
   openLazyLink: "openLazyLink",
   convertTab: "convertTabToLazy"
 };
+
+const lazyGroupByWindow = new Map();
 
 const getLocal = (keys) =>
   new Promise((resolve) => chrome.storage.local.get(keys, resolve));
@@ -58,6 +64,44 @@ const updateTab = (tabId, updateProperties) =>
 const queryTabs = (queryInfo) =>
   new Promise((resolve) => chrome.tabs.query(queryInfo, resolve));
 
+const groupTab = (tabId, groupId, windowId) =>
+  new Promise((resolve) => {
+    const options = typeof groupId === "number"
+      ? { groupId, tabIds: [tabId] }
+      : { tabIds: [tabId], createProperties: { windowId } };
+    chrome.tabs.group(options, (resultId) => {
+      if (chrome.runtime.lastError) {
+        resolve(null);
+        return;
+      }
+      resolve(resultId);
+    });
+  });
+
+const ungroupTab = (tabId) =>
+  new Promise((resolve) => {
+    chrome.tabs.ungroup([tabId], () => resolve());
+  });
+
+const queryTabGroups = (queryInfo) =>
+  new Promise((resolve) => chrome.tabGroups.query(queryInfo, resolve));
+
+const getTabGroup = (groupId) =>
+  new Promise((resolve) => {
+    chrome.tabGroups.get(groupId, (group) => {
+      if (chrome.runtime.lastError) {
+        resolve(null);
+        return;
+      }
+      resolve(group);
+    });
+  });
+
+const updateTabGroup = (groupId, properties) =>
+  new Promise((resolve) => {
+    chrome.tabGroups.update(groupId, properties, () => resolve());
+  });
+
 const getAlarm = (name) =>
   new Promise((resolve) => chrome.alarms.get(name, resolve));
 
@@ -75,6 +119,10 @@ async function getNextAlarmAt() {
 
 function supportsOffscreen() {
   return Boolean(chrome.offscreen && chrome.offscreen.createDocument);
+}
+
+function supportsTabGroups() {
+  return Boolean(chrome.tabs && chrome.tabs.group && chrome.tabGroups);
 }
 
 async function hasOffscreenDocument() {
@@ -181,7 +229,8 @@ async function getSettings() {
     STORAGE_KEYS.enabled,
     STORAGE_KEYS.autoLoadEnabled,
     STORAGE_KEYS.autoLoadIntervalSeconds,
-    STORAGE_KEYS.autoLoadIntervalMinutes
+    STORAGE_KEYS.autoLoadIntervalMinutes,
+    STORAGE_KEYS.groupLazyTabsEnabled
   ]);
 
   const enabled =
@@ -193,6 +242,11 @@ async function getSettings() {
     typeof result[STORAGE_KEYS.autoLoadEnabled] === "boolean"
       ? result[STORAGE_KEYS.autoLoadEnabled]
       : DEFAULT_SETTINGS.autoLoadEnabled;
+
+  const groupLazyTabsEnabled =
+    typeof result[STORAGE_KEYS.groupLazyTabsEnabled] === "boolean"
+      ? result[STORAGE_KEYS.groupLazyTabsEnabled]
+      : DEFAULT_SETTINGS.groupLazyTabsEnabled;
 
   let autoLoadIntervalSeconds = Number(
     result[STORAGE_KEYS.autoLoadIntervalSeconds]
@@ -209,7 +263,12 @@ async function getSettings() {
     autoLoadIntervalSeconds = Math.floor(autoLoadIntervalSeconds);
   }
 
-  return { enabled, autoLoadEnabled, autoLoadIntervalSeconds };
+  return {
+    enabled,
+    autoLoadEnabled,
+    autoLoadIntervalSeconds,
+    groupLazyTabsEnabled
+  };
 }
 
 function isCustomTabUrl(url) {
@@ -265,7 +324,8 @@ async function ensureDefaults() {
     STORAGE_KEYS.autoLoadIntervalMinutes,
     STORAGE_KEYS.lazyQueue,
     STORAGE_KEYS.nextAlarmAt,
-    STORAGE_KEYS.blockedDomains
+    STORAGE_KEYS.blockedDomains,
+    STORAGE_KEYS.groupLazyTabsEnabled
   ]);
 
   const updates = {};
@@ -275,6 +335,10 @@ async function ensureDefaults() {
   }
   if (typeof result[STORAGE_KEYS.autoLoadEnabled] !== "boolean") {
     updates[STORAGE_KEYS.autoLoadEnabled] = DEFAULT_SETTINGS.autoLoadEnabled;
+  }
+  if (typeof result[STORAGE_KEYS.groupLazyTabsEnabled] !== "boolean") {
+    updates[STORAGE_KEYS.groupLazyTabsEnabled] =
+      DEFAULT_SETTINGS.groupLazyTabsEnabled;
   }
 
   let intervalSeconds = Number(result[STORAGE_KEYS.autoLoadIntervalSeconds]);
@@ -337,6 +401,78 @@ async function getLazyQueue() {
 async function setLazyQueue(queue) {
   await setLocal({ [STORAGE_KEYS.lazyQueue]: queue });
   updateBadge(queue.length);
+}
+
+async function getLazyGroupId(windowId) {
+  if (!supportsTabGroups()) return null;
+
+  const cached = lazyGroupByWindow.get(windowId);
+  if (typeof cached === "number") {
+    const group = await getTabGroup(cached);
+    if (group && group.windowId === windowId) {
+      return cached;
+    }
+    lazyGroupByWindow.delete(windowId);
+  }
+
+  const groups = await queryTabGroups({ windowId });
+  const match = groups.find((group) => group.title === LAZY_GROUP_TITLE);
+  if (match) {
+    lazyGroupByWindow.set(windowId, match.id);
+    return match.id;
+  }
+
+  return null;
+}
+
+async function ensureLazyGroupForTab(tab) {
+  if (!supportsTabGroups() || !tab || typeof tab.windowId !== "number") return;
+
+  let groupId = await getLazyGroupId(tab.windowId);
+  if (typeof groupId === "number") {
+    const result = await groupTab(tab.id, groupId);
+    if (typeof result === "number") return;
+    lazyGroupByWindow.delete(tab.windowId);
+  }
+
+  groupId = await groupTab(tab.id, null, tab.windowId);
+  if (typeof groupId === "number") {
+    await updateTabGroup(groupId, {
+      title: LAZY_GROUP_TITLE,
+      color: LAZY_GROUP_COLOR
+    });
+    lazyGroupByWindow.set(tab.windowId, groupId);
+  }
+}
+
+async function ungroupLazyTab(tabId) {
+  if (!supportsTabGroups() || typeof tabId !== "number") return;
+  try {
+    await ungroupTab(tabId);
+  } catch {
+    // Ignore ungroup errors.
+  }
+}
+
+async function groupExistingLazyTabs() {
+  if (!supportsTabGroups()) return;
+  const tabs = await queryTabs({});
+  for (const tab of tabs) {
+    if (tab && isCustomTabUrl(tab.url)) {
+      await ensureLazyGroupForTab(tab);
+    }
+  }
+}
+
+async function ungroupExistingLazyTabs() {
+  if (!supportsTabGroups()) return;
+  const tabs = await queryTabs({});
+  for (const tab of tabs) {
+    if (tab && isCustomTabUrl(tab.url)) {
+      await ungroupLazyTab(tab.id);
+    }
+  }
+  lazyGroupByWindow.clear();
 }
 
 async function enqueueLazyTab(tabId) {
@@ -468,8 +604,10 @@ async function releaseAllLazyTabs() {
     const originalUrl = getOriginalUrlFromCustomTab(tab.url);
     if (originalUrl) {
       await updateTab(tab.id, { url: originalUrl });
+      await ungroupLazyTab(tab.id);
     }
   }
+  lazyGroupByWindow.clear();
   await setLazyQueue([]);
 }
 
@@ -483,6 +621,7 @@ async function loadNextLazyTabNow() {
   const originalUrl = getOriginalUrlFromCustomTab(tab.url);
   if (originalUrl) {
     await updateTab(tab.id, { url: originalUrl });
+    await ungroupLazyTab(tab.id);
   }
 
   await scheduleAutoLoad(true);
@@ -511,6 +650,10 @@ async function openLazyTabForUrl(url, openerTabId, active) {
   if (tab && settings.autoLoadEnabled) {
     await enqueueLazyTab(tab.id);
     await scheduleAutoLoad(false);
+  }
+
+  if (tab && settings.groupLazyTabsEnabled) {
+    await ensureLazyGroupForTab(tab);
   }
 
   return tab;
@@ -550,6 +693,7 @@ async function handlePrecisionTick() {
   const originalUrl = getOriginalUrlFromCustomTab(tab.url);
   if (originalUrl) {
     await updateTab(tab.id, { url: originalUrl });
+    await ungroupLazyTab(tab.id);
   }
 
   const remainingQueue = await getLazyQueue();
@@ -573,6 +717,9 @@ chrome.runtime.onStartup.addListener(async () => {
   const settings = await getSettings();
   if (settings.enabled && settings.autoLoadEnabled) {
     await rebuildQueueFromTabs();
+  }
+  if (settings.groupLazyTabsEnabled) {
+    await groupExistingLazyTabs();
   }
   await scheduleAutoLoad(true);
 });
@@ -629,6 +776,10 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       await enqueueLazyTab(tab.id);
       await scheduleAutoLoad(false);
     }
+
+    if (settings.groupLazyTabsEnabled) {
+      await ensureLazyGroupForTab(tab);
+    }
   }
 });
 
@@ -649,6 +800,10 @@ chrome.tabs.onCreated.addListener(async (tab) => {
     await enqueueLazyTab(tab.id);
     await scheduleAutoLoad(false);
   }
+
+  if (settings.groupLazyTabsEnabled) {
+    await ensureLazyGroupForTab(tab);
+  }
 });
 
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
@@ -658,6 +813,7 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
   const originalUrl = getOriginalUrlFromCustomTab(tab.url);
   if (originalUrl) {
     await updateTab(activeInfo.tabId, { url: originalUrl });
+    await ungroupLazyTab(activeInfo.tabId);
   }
   await removeLazyTab(activeInfo.tabId);
   await clearScheduleIfQueueEmpty();
@@ -688,6 +844,14 @@ chrome.storage.onChanged.addListener(async (changes, areaName) => {
     }
     await scheduleAutoLoad(true);
   }
+
+  if (changes.groupLazyTabsEnabled) {
+    if (changes.groupLazyTabsEnabled.newValue === true) {
+      await groupExistingLazyTabs();
+    } else {
+      await ungroupExistingLazyTabs();
+    }
+  }
 });
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
@@ -711,6 +875,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   const originalUrl = getOriginalUrlFromCustomTab(tab.url);
   if (originalUrl) {
     await updateTab(tab.id, { url: originalUrl });
+    await ungroupLazyTab(tab.id);
   }
 
   await scheduleAutoLoad(true);
@@ -721,6 +886,9 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   const settings = await getSettings();
   if (settings.enabled && settings.autoLoadEnabled) {
     await rebuildQueueFromTabs();
+  }
+  if (settings.groupLazyTabsEnabled) {
+    await groupExistingLazyTabs();
   }
   await scheduleAutoLoad(true);
 })();
