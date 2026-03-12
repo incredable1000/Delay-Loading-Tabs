@@ -9,7 +9,7 @@
       padding: 20px;
       border-radius: 10px;
       box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-      width: 300px;
+      width: 320px;
     }
 
     h1 {
@@ -93,7 +93,7 @@
     }
 
     input[type="number"] {
-      width: 90px;
+      width: 100px;
       padding: 6px 8px;
       border: 1px solid #ccc;
       border-radius: 6px;
@@ -109,6 +109,81 @@
       font-size: 12px;
       color: #777;
       margin-top: 8px;
+    }
+
+    .queue-section {
+      border-top: 1px solid #e5e5e5;
+      margin-top: 14px;
+      padding-top: 12px;
+    }
+
+    .queue-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 14px;
+      font-weight: bold;
+      color: #333;
+      margin-bottom: 8px;
+    }
+
+    .badge {
+      background-color: #4CAF50;
+      color: #fff;
+      border-radius: 12px;
+      padding: 2px 8px;
+      font-size: 12px;
+      min-width: 18px;
+      text-align: center;
+    }
+
+    .queue-actions {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    button {
+      flex: 1;
+      padding: 6px 8px;
+      font-size: 12px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      background-color: #fff;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: default;
+    }
+
+    .queue-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      max-height: 140px;
+      overflow-y: auto;
+    }
+
+    .queue-item {
+      font-size: 12px;
+      color: #444;
+      padding: 4px 0;
+      border-bottom: 1px solid #eee;
+    }
+
+    .queue-item:last-child {
+      border-bottom: none;
+    }
+
+    .queue-more {
+      color: #777;
+    }
+
+    .queue-empty {
+      font-size: 12px;
+      color: #777;
     }
   </style>
 </head>
@@ -138,6 +213,19 @@
   </div>
 
   <p class="note">Auto-loads one lazy tab per interval.</p>
+
+  <div class="queue-section">
+    <div class="queue-header">
+      <span>Queued Lazy Tabs</span>
+      <span class="badge" id="queueCount">0</span>
+    </div>
+    <div class="queue-actions">
+      <button id="loadNext" type="button">Load Next</button>
+      <button id="refreshQueue" type="button">Refresh</button>
+    </div>
+    <ul class="queue-list" id="queueList"></ul>
+    <div class="queue-empty" id="queueEmpty">No queued lazy tabs.</div>
+  </div>
 
   <script src="popup.js"></script>
 </body>

@@ -14,6 +14,7 @@ const STORAGE_KEYS = {
 };
 
 const AUTOLOAD_ALARM = "autoLoadLazyTabs";
+const BADGE_COLOR = "#4CAF50";
 
 const getLocal = (keys) =>
   new Promise((resolve) => chrome.storage.local.get(keys, resolve));
@@ -48,6 +49,17 @@ const clearAlarm = (name) =>
 
 const setNextAlarmAt = (value) =>
   setLocal({ [STORAGE_KEYS.nextAlarmAt]: value });
+
+function formatBadgeText(count) {
+  if (!Number.isFinite(count) || count <= 0) return "";
+  if (count > 99) return "99+";
+  return String(count);
+}
+
+function updateBadge(count) {
+  chrome.action.setBadgeText({ text: formatBadgeText(count) });
+  chrome.action.setBadgeBackgroundColor({ color: BADGE_COLOR });
+}
 
 function normalizeIntervalSeconds(value) {
   const num = Number(value);
@@ -184,6 +196,9 @@ async function ensureDefaults() {
   if (Object.keys(updates).length > 0) {
     await setLocal(updates);
   }
+
+  const queue = await getLazyQueue();
+  updateBadge(queue.length);
 }
 
 async function getLazyQueue() {
@@ -194,6 +209,7 @@ async function getLazyQueue() {
 
 async function setLazyQueue(queue) {
   await setLocal({ [STORAGE_KEYS.lazyQueue]: queue });
+  updateBadge(queue.length);
 }
 
 async function enqueueLazyTab(tabId) {
@@ -295,6 +311,22 @@ async function releaseAllLazyTabs() {
   await setLazyQueue([]);
 }
 
+async function loadNextLazyTabNow() {
+  const tab = await popNextLazyTab();
+  if (!tab) {
+    await clearAutoLoadAlarm();
+    return false;
+  }
+
+  const originalUrl = getOriginalUrlFromCustomTab(tab.url);
+  if (originalUrl) {
+    await updateTab(tab.id, { url: originalUrl });
+  }
+
+  await ensureAutoLoadAlarm(true);
+  return true;
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   ensureDefaults();
   ensureAutoLoadAlarm(true);
@@ -307,6 +339,24 @@ chrome.runtime.onStartup.addListener(async () => {
     await rebuildQueueFromTabs();
   }
   await ensureAutoLoadAlarm(true);
+});
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!message || typeof message.type !== "string") return;
+
+  if (message.type === "getQueue") {
+    getLazyQueue().then((queue) => sendResponse({ queue }));
+    return true;
+  }
+
+  if (message.type === "loadNextNow") {
+    loadNextLazyTabNow()
+      .then((loaded) => sendResponse({ loaded }))
+      .catch((error) =>
+        sendResponse({ loaded: false, error: error?.message || "error" })
+      );
+    return true;
+  }
 });
 
 chrome.tabs.onCreated.addListener(async (tab) => {
