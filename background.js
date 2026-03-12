@@ -380,14 +380,14 @@ async function ensureDefaults() {
 function setupContextMenus() {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
-      id: MENU_IDS.openLazyLink,
-      title: "Open link as lazy tab",
-      contexts: ["link"]
-    });
-    chrome.contextMenus.create({
       id: MENU_IDS.convertTab,
       title: "Convert tab to lazy",
       contexts: ["page"]
+    });
+    chrome.contextMenus.create({
+      id: MENU_IDS.openLazyLink,
+      title: "Open in new lazy tab",
+      contexts: ["link"]
     });
   });
 }
