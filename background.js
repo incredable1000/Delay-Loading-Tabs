@@ -16,6 +16,7 @@ const STORAGE_KEYS = {
 
 const AUTOLOAD_ALARM = "autoLoadLazyTabs";
 const BADGE_COLOR = "#4CAF50";
+const OFFSCREEN_URL = "offscreen.html";
 const MENU_IDS = {
   openLazyLink: "openLazyLink",
   convertTab: "convertTabToLazy"
@@ -65,6 +66,52 @@ const clearAlarm = (name) =>
 
 const setNextAlarmAt = (value) =>
   setLocal({ [STORAGE_KEYS.nextAlarmAt]: value });
+
+async function getNextAlarmAt() {
+  const result = await getLocal([STORAGE_KEYS.nextAlarmAt]);
+  const value = result[STORAGE_KEYS.nextAlarmAt];
+  return typeof value === "number" ? value : null;
+}
+
+function supportsOffscreen() {
+  return Boolean(chrome.offscreen && chrome.offscreen.createDocument);
+}
+
+async function hasOffscreenDocument() {
+  if (!supportsOffscreen() || !chrome.offscreen.hasDocument) return false;
+  try {
+    return await chrome.offscreen.hasDocument();
+  } catch {
+    return false;
+  }
+}
+
+async function ensureOffscreenDocument() {
+  if (!supportsOffscreen()) return false;
+  const exists = await hasOffscreenDocument();
+  if (exists) return true;
+  try {
+    await chrome.offscreen.createDocument({
+      url: OFFSCREEN_URL,
+      reasons: ["DOM_PARSER"],
+      justification: "Keep a high-precision timer for auto-loading lazy tabs."
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function closeOffscreenDocument() {
+  if (!supportsOffscreen() || !chrome.offscreen.closeDocument) return;
+  const exists = await hasOffscreenDocument();
+  if (!exists) return;
+  try {
+    await chrome.offscreen.closeDocument();
+  } catch {
+    // Ignore close errors.
+  }
+}
 
 function formatBadgeText(count) {
   if (!Number.isFinite(count) || count <= 0) return "";
@@ -340,21 +387,22 @@ async function popNextLazyTab() {
   return null;
 }
 
-async function clearAutoLoadAlarm() {
+async function clearAutoLoadSchedule() {
   await clearAlarm(AUTOLOAD_ALARM);
   await setNextAlarmAt(null);
+  await closeOffscreenDocument();
 }
 
 async function ensureAutoLoadAlarm(forceReschedule = false) {
   const settings = await getSettings();
   if (!settings.enabled || !settings.autoLoadEnabled) {
-    await clearAutoLoadAlarm();
+    await clearAutoLoadSchedule();
     return;
   }
 
   const queue = await getLazyQueue();
   if (queue.length === 0) {
-    await clearAutoLoadAlarm();
+    await clearAutoLoadSchedule();
     return;
   }
 
@@ -372,10 +420,44 @@ async function ensureAutoLoadAlarm(forceReschedule = false) {
   await setNextAlarmAt(when);
 }
 
-async function clearAlarmIfQueueEmpty() {
+async function scheduleAutoLoad(forceReschedule = false) {
+  const settings = await getSettings();
+  if (!settings.enabled || !settings.autoLoadEnabled) {
+    await clearAutoLoadSchedule();
+    return;
+  }
+
   const queue = await getLazyQueue();
   if (queue.length === 0) {
-    await clearAutoLoadAlarm();
+    await clearAutoLoadSchedule();
+    return;
+  }
+
+  const usingOffscreen = await ensureOffscreenDocument();
+  if (!usingOffscreen) {
+    await ensureAutoLoadAlarm(forceReschedule);
+    return;
+  }
+
+  await clearAlarm(AUTOLOAD_ALARM);
+
+  if (forceReschedule) {
+    const when = Date.now() + settings.autoLoadIntervalSeconds * 1000;
+    await setNextAlarmAt(when);
+    return;
+  }
+
+  const nextAt = await getNextAlarmAt();
+  if (!nextAt || nextAt < Date.now() - 1000) {
+    const when = Date.now() + settings.autoLoadIntervalSeconds * 1000;
+    await setNextAlarmAt(when);
+  }
+}
+
+async function clearScheduleIfQueueEmpty() {
+  const queue = await getLazyQueue();
+  if (queue.length === 0) {
+    await clearAutoLoadSchedule();
   }
 }
 
@@ -394,7 +476,7 @@ async function releaseAllLazyTabs() {
 async function loadNextLazyTabNow() {
   const tab = await popNextLazyTab();
   if (!tab) {
-    await clearAutoLoadAlarm();
+    await clearAutoLoadSchedule();
     return false;
   }
 
@@ -403,7 +485,7 @@ async function loadNextLazyTabNow() {
     await updateTab(tab.id, { url: originalUrl });
   }
 
-  await ensureAutoLoadAlarm(true);
+  await scheduleAutoLoad(true);
   return true;
 }
 
@@ -428,16 +510,61 @@ async function openLazyTabForUrl(url, openerTabId, active) {
 
   if (tab && settings.autoLoadEnabled) {
     await enqueueLazyTab(tab.id);
-    await ensureAutoLoadAlarm(false);
+    await scheduleAutoLoad(false);
   }
 
   return tab;
 }
 
+async function handlePrecisionTick() {
+  const settings = await getSettings();
+  if (!settings.enabled || !settings.autoLoadEnabled) {
+    await clearAutoLoadSchedule();
+    return;
+  }
+
+  const queue = await getLazyQueue();
+  if (queue.length === 0) {
+    await clearAutoLoadSchedule();
+    return;
+  }
+
+  let nextAt = await getNextAlarmAt();
+  const now = Date.now();
+
+  if (!nextAt) {
+    await setNextAlarmAt(now + settings.autoLoadIntervalSeconds * 1000);
+    return;
+  }
+
+  if (now < nextAt) {
+    return;
+  }
+
+  const tab = await popNextLazyTab();
+  if (!tab) {
+    await clearAutoLoadSchedule();
+    return;
+  }
+
+  const originalUrl = getOriginalUrlFromCustomTab(tab.url);
+  if (originalUrl) {
+    await updateTab(tab.id, { url: originalUrl });
+  }
+
+  const remainingQueue = await getLazyQueue();
+  if (remainingQueue.length === 0) {
+    await clearAutoLoadSchedule();
+    return;
+  }
+
+  await setNextAlarmAt(Date.now() + settings.autoLoadIntervalSeconds * 1000);
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   ensureDefaults();
-  ensureAutoLoadAlarm(true);
   setupContextMenus();
+  scheduleAutoLoad(true);
 });
 
 chrome.runtime.onStartup.addListener(async () => {
@@ -447,7 +574,7 @@ chrome.runtime.onStartup.addListener(async () => {
   if (settings.enabled && settings.autoLoadEnabled) {
     await rebuildQueueFromTabs();
   }
-  await ensureAutoLoadAlarm(true);
+  await scheduleAutoLoad(true);
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -465,6 +592,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ loaded: false, error: error?.message || "error" })
       );
     return true;
+  }
+
+  if (message.type === "precisionTick") {
+    handlePrecisionTick();
+    return;
   }
 });
 
@@ -495,7 +627,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
     if (settings.autoLoadEnabled) {
       await enqueueLazyTab(tab.id);
-      await ensureAutoLoadAlarm(false);
+      await scheduleAutoLoad(false);
     }
   }
 });
@@ -515,7 +647,7 @@ chrome.tabs.onCreated.addListener(async (tab) => {
 
   if (settings.autoLoadEnabled) {
     await enqueueLazyTab(tab.id);
-    await ensureAutoLoadAlarm(false);
+    await scheduleAutoLoad(false);
   }
 });
 
@@ -528,19 +660,19 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
     await updateTab(activeInfo.tabId, { url: originalUrl });
   }
   await removeLazyTab(activeInfo.tabId);
-  await clearAlarmIfQueueEmpty();
+  await clearScheduleIfQueueEmpty();
 });
 
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   await removeLazyTab(tabId);
-  await clearAlarmIfQueueEmpty();
+  await clearScheduleIfQueueEmpty();
 });
 
 chrome.storage.onChanged.addListener(async (changes, areaName) => {
   if (areaName !== "local") return;
 
   if (changes.enabled && changes.enabled.newValue === false) {
-    await clearAutoLoadAlarm();
+    await clearAutoLoadSchedule();
     await releaseAllLazyTabs();
     return;
   }
@@ -554,22 +686,25 @@ chrome.storage.onChanged.addListener(async (changes, areaName) => {
     if (settings.enabled && settings.autoLoadEnabled) {
       await rebuildQueueFromTabs();
     }
-    await ensureAutoLoadAlarm(true);
+    await scheduleAutoLoad(true);
   }
 });
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name !== AUTOLOAD_ALARM) return;
+  if (await hasOffscreenDocument()) {
+    return;
+  }
 
   const settings = await getSettings();
   if (!settings.enabled || !settings.autoLoadEnabled) {
-    await clearAutoLoadAlarm();
+    await clearAutoLoadSchedule();
     return;
   }
 
   const tab = await popNextLazyTab();
   if (!tab) {
-    await clearAutoLoadAlarm();
+    await clearAutoLoadSchedule();
     return;
   }
 
@@ -578,7 +713,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     await updateTab(tab.id, { url: originalUrl });
   }
 
-  await ensureAutoLoadAlarm(true);
+  await scheduleAutoLoad(true);
 });
 
 (async () => {
@@ -587,5 +722,5 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (settings.enabled && settings.autoLoadEnabled) {
     await rebuildQueueFromTabs();
   }
-  await ensureAutoLoadAlarm(true);
+  await scheduleAutoLoad(true);
 })();
