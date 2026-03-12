@@ -3,40 +3,126 @@
 <head>
   <title>Lazy Load New Tabs</title>
   <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0f15;
+      --card: #141a24;
+      --card-strong: #1b2332;
+      --border: #2a3242;
+      --text: #f1f5ff;
+      --muted: #b6c0d1;
+      --accent: #3ecf8e;
+      --accent-strong: #25b67a;
+      --warning: #ffbf69;
+      --shadow: 0 14px 30px rgba(0, 0, 0, 0.45);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
     body {
-      font-family: Arial, sans-serif;
-      background-color: #f9f9f9;
-      padding: 20px;
-      border-radius: 10px;
-      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-      width: 320px;
+      font-family: "Atkinson Hyperlegible", "Trebuchet MS", "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top, #152033 0%, #0b0f15 55%);
+      color: var(--text);
+      margin: 0;
+      padding: 16px;
+      width: 370px;
+    }
+
+    .app {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .app-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px;
+      background: linear-gradient(135deg, #1a2232 0%, #111723 100%);
+      border-radius: 16px;
+      border: 1px solid #222b3a;
+      box-shadow: var(--shadow);
+    }
+
+    .app-icon {
+      width: 52px;
+      height: 52px;
+      border-radius: 16px;
+      background: #1e2636;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent);
+      box-shadow: inset 0 0 0 1px #2b364a;
     }
 
     h1 {
-      font-weight: bold;
-      font-size: 18px;
-      margin-bottom: 10px;
+      font-weight: 700;
+      font-size: 20px;
+      margin: 0;
     }
 
     p {
       font-size: 14px;
-      color: #666;
-      margin-bottom: 16px;
+      color: var(--muted);
+      margin: 4px 0 0;
+      line-height: 1.4;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px;
+      box-shadow: var(--shadow);
+    }
+
+    .card-title {
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--muted);
+      margin-bottom: 10px;
+      font-weight: 600;
     }
 
     .setting-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 10px;
-      margin-bottom: 12px;
+      gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid #202737;
+    }
+
+    .setting-row:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+
+    .setting-text {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .setting-text span {
+      font-size: 16px;
+    }
+
+    .subtext {
+      font-size: 13px;
+      color: var(--muted);
     }
 
     .toggle-switch {
       position: relative;
       display: inline-block;
-      width: 40px;
-      height: 24px;
+      width: 54px;
+      height: 30px;
       margin-left: 8px;
     }
 
@@ -53,137 +139,151 @@
       left: 0;
       right: 0;
       bottom: 0;
-      background-color: #ccc;
-      border-radius: 24px;
-      transition: 0.4s;
+      background-color: #3a4358;
+      border-radius: 30px;
+      transition: 0.25s;
     }
 
     .toggle-switch .slider:before {
       position: absolute;
       content: "";
-      height: 20px;
-      width: 20px;
-      left: 2px;
-      top: 2px;
+      height: 24px;
+      width: 24px;
+      left: 3px;
+      top: 3px;
       background-color: #fff;
       border-radius: 50%;
-      transition: 0.4s;
+      transition: 0.25s;
     }
 
     .toggle-switch input:checked + .slider {
-      background-color: #4CAF50;
-    }
-
-    .toggle-switch input:focus + .slider {
-      box-shadow: 0 0 1px #4CAF50;
+      background-color: var(--accent);
     }
 
     .toggle-switch input:checked + .slider:before {
-      transform: translateX(16px);
+      transform: translateX(22px);
     }
 
-    label {
-      font-size: 14px;
-      color: #333;
+    .toggle-switch input:focus + .slider {
+      box-shadow: 0 0 0 3px rgba(62, 207, 142, 0.3);
     }
 
     .input-label {
-      font-size: 13px;
-      color: #444;
+      font-size: 15px;
+      color: var(--text);
       display: block;
-      margin-bottom: 6px;
     }
 
     input[type="number"] {
-      width: 100px;
-      padding: 6px 8px;
-      border: 1px solid #ccc;
-      border-radius: 6px;
-      font-size: 13px;
+      width: 120px;
+      height: 40px;
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-size: 16px;
+      background-color: #0f1420;
+      color: var(--text);
     }
 
     input[type="number"]:disabled {
       opacity: 0.6;
-      background-color: #eee;
+      background-color: #141a24;
     }
 
     textarea {
       width: 100%;
-      min-height: 70px;
-      padding: 6px 8px;
-      border: 1px solid #ccc;
-      border-radius: 6px;
-      font-size: 12px;
+      min-height: 90px;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-size: 14px;
       font-family: inherit;
       resize: vertical;
+      background-color: #0f1420;
+      color: var(--text);
     }
 
     .note {
-      font-size: 12px;
-      color: #777;
-      margin-top: 8px;
-    }
-
-    .queue-section {
-      border-top: 1px solid #e5e5e5;
-      margin-top: 14px;
-      padding-top: 12px;
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 10px;
+      background: #121826;
+      border: 1px solid #20283a;
+      padding: 8px 10px;
+      border-radius: 10px;
     }
 
     .queue-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      font-size: 14px;
-      font-weight: bold;
-      color: #333;
-      margin-bottom: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 10px;
     }
 
     .badge {
-      background-color: #4CAF50;
-      color: #fff;
+      background-color: var(--accent);
+      color: #062015;
       border-radius: 12px;
-      padding: 2px 8px;
-      font-size: 12px;
-      min-width: 18px;
+      padding: 4px 10px;
+      font-size: 13px;
+      min-width: 24px;
       text-align: center;
+      font-weight: 700;
     }
 
     .queue-actions {
       display: flex;
-      gap: 8px;
-      margin-bottom: 8px;
+      gap: 10px;
+      margin-bottom: 10px;
     }
 
     button {
       flex: 1;
-      padding: 6px 8px;
-      font-size: 12px;
-      border-radius: 6px;
-      border: 1px solid #ccc;
-      background-color: #fff;
+      padding: 10px 12px;
+      font-size: 14px;
+      border-radius: 10px;
+      border: 1px solid #2c3650;
+      background-color: #1a2234;
+      color: var(--text);
       cursor: pointer;
+      transition: 0.2s;
+    }
+
+    button.primary {
+      background-color: var(--accent);
+      color: #062015;
+      border-color: transparent;
+      font-weight: 600;
+    }
+
+    button:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.35);
     }
 
     button:disabled {
-      opacity: 0.6;
+      opacity: 0.5;
       cursor: default;
+      transform: none;
+      box-shadow: none;
     }
 
     .queue-list {
       list-style: none;
       padding: 0;
       margin: 0;
-      max-height: 140px;
+      max-height: 180px;
       overflow-y: auto;
     }
 
     .queue-item {
-      font-size: 12px;
-      color: #444;
-      padding: 4px 0;
-      border-bottom: 1px solid #eee;
+      font-size: 14px;
+      color: var(--muted);
+      padding: 6px 0;
+      border-bottom: 1px solid #1d2434;
     }
 
     .queue-item:last-child {
@@ -191,74 +291,105 @@
     }
 
     .queue-more {
-      color: #777;
+      color: var(--warning);
     }
 
     .queue-empty {
-      font-size: 12px;
-      color: #777;
+      font-size: 14px;
+      color: var(--muted);
     }
 
-    .site-section {
-      border-top: 1px solid #e5e5e5;
-      margin-top: 14px;
-      padding-top: 12px;
+    .focus-ring:focus-visible,
+    input[type="number"]:focus-visible,
+    textarea:focus-visible,
+    button:focus-visible {
+      outline: 2px solid rgba(62, 207, 142, 0.55);
+      outline-offset: 2px;
     }
   </style>
 </head>
 <body>
-  <h1>Lazy Load New Tabs</h1>
-  <p>Open links in a new tab with lazy loading!</p>
+  <div class="app">
+    <header class="app-header">
+      <div class="app-icon" aria-hidden="true">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="8"></circle>
+          <path d="M12 7v5l3 2"></path>
+        </svg>
+      </div>
+      <div>
+        <h1>Lazy Load New Tabs</h1>
+        <p>Open links in a new tab with lazy loading.</p>
+      </div>
+    </header>
 
-  <div class="setting-row">
-    <span>Enable Lazy Load Tabs</span>
-    <label class="toggle-switch">
-      <input type="checkbox" id="enabled">
-      <span class="slider"></span>
-    </label>
-  </div>
+    <section class="card">
+      <div class="card-title">Core Controls</div>
+      <div class="setting-row">
+        <div class="setting-text">
+          <span>Enable Lazy Load Tabs</span>
+          <span class="subtext">Turn lazy loading on or off.</span>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="enabled">
+          <span class="slider"></span>
+        </label>
+      </div>
 
-  <div class="setting-row">
-    <span>Auto Load Lazy Tabs</span>
-    <label class="toggle-switch">
-      <input type="checkbox" id="autoLoadEnabled">
-      <span class="slider"></span>
-    </label>
-  </div>
+      <div class="setting-row">
+        <div class="setting-text">
+          <span>Auto Load Lazy Tabs</span>
+          <span class="subtext">Load tabs automatically after a delay.</span>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="autoLoadEnabled">
+          <span class="slider"></span>
+        </label>
+      </div>
 
-  <div class="setting-row">
-    <span>Group Lazy Tabs</span>
-    <label class="toggle-switch">
-      <input type="checkbox" id="groupLazyTabsEnabled">
-      <span class="slider"></span>
-    </label>
-  </div>
+      <div class="setting-row">
+        <div class="setting-text">
+          <span>Group Lazy Tabs</span>
+          <span class="subtext">Keep lazy tabs grouped per window.</span>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="groupLazyTabsEnabled">
+          <span class="slider"></span>
+        </label>
+      </div>
+    </section>
 
-  <div class="setting-row">
-    <label class="input-label" for="autoLoadIntervalSeconds">Cooling Period (seconds)</label>
-    <input type="number" id="autoLoadIntervalSeconds" min="1" step="1">
-  </div>
+    <section class="card">
+      <div class="card-title">Cooling Period</div>
+      <div class="setting-row">
+        <div class="setting-text">
+          <label class="input-label" for="autoLoadIntervalSeconds">Interval (seconds)</label>
+          <span class="subtext">One lazy tab loads per interval.</span>
+        </div>
+        <input type="number" id="autoLoadIntervalSeconds" min="1" step="1">
+      </div>
+      <div class="note">Lower values load faster, higher values reduce CPU spikes.</div>
+    </section>
 
-  <p class="note">Auto-loads one lazy tab per interval.</p>
+    <section class="card">
+      <div class="queue-header">
+        <span>Queued Lazy Tabs</span>
+        <span class="badge" id="queueCount">0</span>
+      </div>
+      <div class="queue-actions">
+        <button id="loadNext" class="primary" type="button">Load Next</button>
+        <button id="refreshQueue" type="button">Refresh</button>
+      </div>
+      <ul class="queue-list" id="queueList"></ul>
+      <div class="queue-empty" id="queueEmpty">No queued lazy tabs.</div>
+    </section>
 
-  <div class="queue-section">
-    <div class="queue-header">
-      <span>Queued Lazy Tabs</span>
-      <span class="badge" id="queueCount">0</span>
-    </div>
-    <div class="queue-actions">
-      <button id="loadNext" type="button">Load Next</button>
-      <button id="refreshQueue" type="button">Refresh</button>
-    </div>
-    <ul class="queue-list" id="queueList"></ul>
-    <div class="queue-empty" id="queueEmpty">No queued lazy tabs.</div>
-  </div>
-
-  <div class="site-section">
-    <div class="queue-header">Site Exceptions</div>
-    <label class="input-label" for="blockedDomains">Never lazy-load (one per line)</label>
-    <textarea id="blockedDomains" placeholder="example.com"></textarea>
-    <p class="note">Matches domain and subdomains.</p>
+    <section class="card">
+      <div class="card-title">Site Exceptions</div>
+      <label class="input-label" for="blockedDomains">Never lazy-load (one per line)</label>
+      <textarea id="blockedDomains" placeholder="example.com"></textarea>
+      <div class="note">Matches a domain and its subdomains.</div>
+    </section>
   </div>
 
   <script src="popup.js"></script>
