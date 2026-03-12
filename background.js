@@ -628,15 +628,16 @@ async function loadNextLazyTabNow() {
   return true;
 }
 
-async function openLazyTabForUrl(url, openerTabId, active) {
+async function openLazyTabForUrl(url, openerTabId, active, options = {}) {
   const settings = await getSettings();
   const isLazyUrl = isLazyCandidateUrl(url);
+  const forceLazy = options && options.forceLazy === true;
 
   if (!isLazyUrl) {
     return createTab({ url, openerTabId, active });
   }
 
-  if (!settings.enabled) {
+  if (!forceLazy && !settings.enabled) {
     return createTab({ url, openerTabId, active });
   }
 
@@ -753,7 +754,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === MENU_IDS.openLazyLink) {
     if (!info.linkUrl) return;
     const openerTabId = tab && typeof tab.id === "number" ? tab.id : undefined;
-    await openLazyTabForUrl(info.linkUrl, openerTabId, false);
+    await openLazyTabForUrl(info.linkUrl, openerTabId, false, { forceLazy: true });
     return;
   }
 
@@ -763,8 +764,6 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     if (isCustomTabUrl(tab.url)) return;
 
     const settings = await getSettings();
-    if (!settings.enabled) return;
-
     if (await shouldBlockUrl(tab.url)) {
       return;
     }
