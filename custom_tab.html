@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tab Preview</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f4f4f4;
+            color: #333;
+            text-align: center;
+        }
+        .url {
+            font-size: 20px;
+            font-weight: bold;
+            margin-top: 20px;
+        }
+        .remaining {
+            font-size: 14px;
+            color: #666;
+            margin-top: 12px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Lazy Tab</h1>
+    <p>This tab will load the page below when activated or automatically (if enabled):</p>
+    <div class="url" id="urlDisplay"></div>
+    <div class="remaining" id="remainingTime"></div>
+
+    <script src="customTab.js"></script>
+</body>
+</html>
