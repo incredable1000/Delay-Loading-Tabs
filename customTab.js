@@ -44,15 +44,12 @@ function getLocal(keys) {
 
 async function refreshRemaining() {
   const result = await getLocal([
-    "enabled",
     "autoLoadEnabled",
     "autoLoadIntervalSeconds",
     "lazyQueue",
     "nextAlarmAt"
   ]);
 
-  const enabled =
-    typeof result.enabled === "boolean" ? result.enabled : false;
   const autoLoadEnabled =
     typeof result.autoLoadEnabled === "boolean" ? result.autoLoadEnabled : false;
   const intervalSeconds = Number.isFinite(result.autoLoadIntervalSeconds)
@@ -61,12 +58,6 @@ async function refreshRemaining() {
   const queue = Array.isArray(result.lazyQueue) ? result.lazyQueue : [];
   const nextAlarmAt =
     typeof result.nextAlarmAt === "number" ? result.nextAlarmAt : null;
-
-  if (!enabled) {
-    setRemainingText("Lazy loading is off.");
-    setTitle("Off");
-    return;
-  }
 
   if (!autoLoadEnabled) {
     setRemainingText("Auto-load is off. This tab loads when activated.");
