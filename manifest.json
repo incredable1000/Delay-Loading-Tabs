@@ -1,12 +1,19 @@
 {
   "manifest_version": 3,
   "name": "Lazy Load New Tabs",
-  "version": "1.14",
+  "version": "1.15",
   "description": "Open new tabs without loading the website until the tab is activated, preserving URLs across sessions.",
   "permissions": ["tabs", "storage", "alarms", "contextMenus", "offscreen", "tabGroups"],
   "action": {
     "default_popup": "popup.html"
   },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["hoverLinkTracker.js"],
+      "run_at": "document_idle"
+    }
+  ],
   "commands": {
     "open_lazy_tab": {
       "suggested_key": {

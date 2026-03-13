@@ -26,7 +26,29 @@ const MENU_IDS = {
   convertTab: "convertTabToLazy"
 };
 
+const NEW_TAB_TRACKER_TTL_MS = 15000;
+const recentCreatedTabs = new Map();
 const lazyGroupByWindow = new Map();
+const lastHoveredLinkByTab = new Map();
+
+function markRecentTab(tabId) {
+  if (typeof tabId !== "number") return;
+  recentCreatedTabs.set(tabId, Date.now());
+}
+
+function clearRecentTab(tabId) {
+  recentCreatedTabs.delete(tabId);
+}
+
+function isRecentTab(tabId) {
+  const ts = recentCreatedTabs.get(tabId);
+  if (!ts) return false;
+  if (Date.now() - ts > NEW_TAB_TRACKER_TTL_MS) {
+    recentCreatedTabs.delete(tabId);
+    return false;
+  }
+  return true;
+}
 
 const getLocal = (keys) =>
   new Promise((resolve) => chrome.storage.local.get(keys, resolve));
@@ -509,6 +531,30 @@ async function rebuildQueueFromTabs() {
   return queue;
 }
 
+async function maybeConvertNewTabToLazy(tab, url) {
+  if (!tab || typeof tab.id !== "number") return false;
+  if (!url || !isLazyCandidateUrl(url)) return false;
+  if (isCustomTabUrl(url)) return false;
+
+  const settings = await getSettings();
+  if (!settings.enabled) return false;
+  if (await shouldBlockUrl(url)) return false;
+
+  const customTabUrl = buildCustomTabUrl(url);
+  await updateTab(tab.id, { url: customTabUrl });
+
+  if (settings.autoLoadEnabled) {
+    await enqueueLazyTab(tab.id);
+    await scheduleAutoLoad(false);
+  }
+
+  if (settings.groupLazyTabsEnabled) {
+    await ensureLazyGroupForTab(tab);
+  }
+
+  return true;
+}
+
 async function popNextLazyTab() {
   let queue = await getLazyQueue();
 
@@ -751,6 +797,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handlePrecisionTick();
     return;
   }
+
+  if (message.type === "hoveredLink") {
+    const tabId = sender && sender.tab ? sender.tab.id : null;
+    if (typeof tabId !== "number") return;
+    if (typeof message.url !== "string") return;
+    if (!isLazyCandidateUrl(message.url)) return;
+    lastHoveredLinkByTab.set(tabId, message.url);
+    return;
+  }
 });
 
 chrome.commands.onCommand.addListener(async (command) => {
@@ -758,14 +813,10 @@ chrome.commands.onCommand.addListener(async (command) => {
   const tab = await getActiveTabInWindow();
   if (!tab || !tab.url) return;
 
-  let targetUrl = tab.url;
-  if (isCustomTabUrl(targetUrl)) {
-    targetUrl = getOriginalUrlFromCustomTab(targetUrl) || targetUrl;
-  }
+  const hoveredUrl = lastHoveredLinkByTab.get(tab.id);
+  if (!hoveredUrl) return;
 
-  if (!isLazyCandidateUrl(targetUrl)) return;
-
-  await openLazyTabForUrl(targetUrl, tab.id, false, { forceLazy: true });
+  await openLazyTabForUrl(hoveredUrl, tab.id, false, { forceLazy: true });
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
@@ -803,25 +854,36 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 });
 
 chrome.tabs.onCreated.addListener(async (tab) => {
-  const settings = await getSettings();
-  if (!settings.enabled) return;
-  if (!tab.openerTabId || !tab.pendingUrl) return;
-  if (!isLazyCandidateUrl(tab.pendingUrl)) return;
+  markRecentTab(tab.id);
 
-  const blockedDomains = await getBlockedDomains();
-  const hostname = getHostname(tab.pendingUrl);
-  if (isDomainBlocked(hostname, blockedDomains)) return;
-
-  const customTabUrl = buildCustomTabUrl(tab.pendingUrl);
-  await updateTab(tab.id, { url: customTabUrl });
-
-  if (settings.autoLoadEnabled) {
-    await enqueueLazyTab(tab.id);
-    await scheduleAutoLoad(false);
+  const candidateUrl = tab.pendingUrl || tab.url;
+  if (!candidateUrl) return;
+  if (isCustomTabUrl(candidateUrl)) {
+    clearRecentTab(tab.id);
+    return;
   }
 
-  if (settings.groupLazyTabsEnabled) {
-    await ensureLazyGroupForTab(tab);
+  const converted = await maybeConvertNewTabToLazy(tab, candidateUrl);
+  if (converted) {
+    clearRecentTab(tab.id);
+  }
+});
+
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (changeInfo.url) {
+    lastHoveredLinkByTab.delete(tabId);
+  }
+
+  if (!changeInfo.url) return;
+  if (!isRecentTab(tabId)) return;
+  if (isCustomTabUrl(changeInfo.url)) {
+    clearRecentTab(tabId);
+    return;
+  }
+
+  const converted = await maybeConvertNewTabToLazy(tab, changeInfo.url);
+  if (converted) {
+    clearRecentTab(tabId);
   }
 });
 
@@ -841,6 +903,8 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   await removeLazyTab(tabId);
   await clearScheduleIfQueueEmpty();
+  lastHoveredLinkByTab.delete(tabId);
+  clearRecentTab(tabId);
 });
 
 chrome.storage.onChanged.addListener(async (changes, areaName) => {
